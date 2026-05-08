@@ -1,0 +1,19 @@
+# Universal Robots UR5e configuration
+planning_group: ur_manipulator
+ee_link: tool0
+base_frame: base_link
+joint_names:
+  - shoulder_pan_joint
+  - shoulder_lift_joint
+  - elbow_joint
+  - wrist_1_joint
+  - wrist_2_joint
+  - wrist_3_joint
+
+# Motion defaults
+velocity_scaling: 0.3
+acceleration_scaling: 0.3
+planning_time: 5.0
+num_attempts: 5
+planner_pipeline: ompl
+planner_id: RRTConnect

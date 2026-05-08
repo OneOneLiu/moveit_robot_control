@@ -1,0 +1,20 @@
+# Franka FR3 robot configuration
+planning_group: fr3_arm
+ee_link: fr3_hand
+base_frame: base
+joint_names:
+  - fr3_joint1
+  - fr3_joint2
+  - fr3_joint3
+  - fr3_joint4
+  - fr3_joint5
+  - fr3_joint6
+  - fr3_joint7
+
+# Motion defaults
+velocity_scaling: 0.05
+acceleration_scaling: 0.05
+planning_time: 5.0
+num_attempts: 5
+planner_pipeline: ''
+planner_id: RRTConnect
