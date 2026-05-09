@@ -14,10 +14,9 @@ setup(
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
-        (os.path.join('share', package_name, 'moveit_config'),
-         glob('moveit_config/*.yaml')),
-        (os.path.join('share', package_name, 'rviz'),
-         glob('rviz/*.rviz')),
+        (os.path.join('share', package_name, 'moveit_config'), glob('moveit_config/*.yaml') + glob('moveit_config/*.xacro')),
+        (os.path.join('share', package_name, 'rviz'), glob('rviz/*.rviz')),
+        (os.path.join('share', package_name, 'urdf'), glob('urdf/*xacro')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -30,8 +29,9 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'test_motion = moveit_robot_control.test_motion:main',
-            'test_scene  = moveit_robot_control.test_scene:main',
+            'test_motion     = moveit_robot_control.test_motion:main',
+            'test_scene      = moveit_robot_control.test_scene:main',
+            'servo_keyboard  = moveit_robot_control.servo_keyboard:main',
         ],
     },
 )
