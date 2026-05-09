@@ -100,3 +100,27 @@ Failed to load node 'servo_node' of type 'moveit_servo::ServoNode'
 apt install ros-jazzy-moveit-servo
 ```
 
+---
+
+## 问题五：`allow_nonzero_velocity_at_trajectory_end`
+
+**配置位置**：`fr3_arm_controller`（`JointTrajectoryController`）的参数，例如在 `moveit_config/fr3_ros_controllers.yaml` 里增加：
+
+```yaml
+allow_nonzero_velocity_at_trajectory_end: true
+```
+
+**原因**：Servo 输出的是短时、滚动窗口的 `JointTrajectory`，最后一点的关节速度通常**不为零**。而 `JointTrajectoryController` 默认要求**轨迹末点速度为零**，否则会拒绝执行。
+
+**不设时的现象**：`ros2_control_node` 里反复报错，例如 `Velocity of last trajectory point of joint fr3_joint1 is not zero: ...`，机械臂几乎不动。
+
+---
+
+## 问题六：启动顺序与 “Waiting to receive robot state update”
+
+**现象**：若先起 Servo 的 launch，`servo_node` 会周期性打 INFO：`Waiting to receive robot state update.`；之后再起 **带 ros2_control / 控制器** 的 launch，这条日志消失，Servo 才能正常工作。
+
+**若反过来**：先起控制器、后起 Servo，有时会一直卡在上述 waiting，像 bug 一样起不来。
+
+**建议**：**先起 Servo launch，再起带 ros2_control 的控制器 launch**（或确保 `/joint_states` 等在 Servo 就绪前已稳定发布）。Servo 依赖持续的机器人状态；顺序反了可能一直 waiting。
+

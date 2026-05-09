@@ -8,10 +8,15 @@ Keyboard teleoperation for MoveIt Servo (FR3).
   r             — Reverse joint direction
   j / t         — Switch to Joint / Twist mode
   w / e         — Planning frame / EE frame
-  s             — Stop
+  s             — Stop immediately
   q             — Quit
+
+Tap: motion stops shortly after you release (no new motion key). Hold: OS key-repeat
+must refresh commands; if hold does nothing, raise STOP_TIMEOUT toward ~0.55 s or
+speed up repeat (`xset r rate 200 30`).
 """
 import sys
+import select
 import tty
 import termios
 import threading
@@ -26,7 +31,8 @@ PLANNING_FRAME = 'fr3_link0'
 EE_FRAME       = 'fr3_hand'
 JOINT_NAMES    = [f'fr3_joint{i}' for i in range(1, 8)]
 RATE_HZ        = 50
-STOP_TIMEOUT   = 0.1   # seconds — stop if no key for this long
+# Idle after last motion key before zeroing velocity (see module docstring).
+STOP_TIMEOUT   = 0.45
 LINEAR_SPEED   = 0.1   # m/s
 ANGULAR_SPEED  = 0.5   # rad/s
 JOINT_SPEED    = 0.3   # rad/s
@@ -56,8 +62,11 @@ class ServoKeyboard(Node):
     def _tick(self):
         with self._lock:
             now = self.get_clock().now()
-            if (now - self._t0).nanoseconds * 1e-9 > STOP_TIMEOUT:
-                self._zero()
+            dt = (now - self._t0).nanoseconds * 1e-9
+            if dt > STOP_TIMEOUT:
+                if self._ta or self._ja:
+                    self._zero()
+                self._t0 = now
             if self._ta:
                 self._tw.header.stamp = now.to_msg()
                 self._tp.publish(self._tw)
@@ -87,7 +96,6 @@ class ServoKeyboard(Node):
     def on_key(self, key):
         switch_mode = None
         with self._lock:
-            self._t0 = self.get_clock().now()
             self._tw.header.frame_id = self._frame
 
             if key in self._TWIST_MAP:
@@ -96,11 +104,13 @@ class ServoKeyboard(Node):
                 speed = LINEAR_SPEED if part == 'linear' else ANGULAR_SPEED
                 setattr(getattr(self._tw.twist, part), attr, sign * speed)
                 self._ta = True
+                self._t0 = self.get_clock().now()
 
             elif key in '1234567':
                 self._zero()
                 self._jog.velocities[int(key) - 1] = self._jvel
                 self._ja = True
+                self._t0 = self.get_clock().now()
 
             elif key == 'r':
                 self._jvel *= -1
@@ -154,22 +164,29 @@ def main():
 
     exe = SingleThreadedExecutor()
     exe.add_node(node)
-    threading.Thread(target=exe.spin, daemon=True).start()
 
     fd  = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     tty.setraw(fd)
 
+    period = 1.0 / RATE_HZ
     try:
         print('MoveIt Servo keyboard — q to quit')
         print('Arrow/./; → linear | a/d/f/v/x/c → rotation | 1–7 → joint')
-        print('j/t → mode | w/e → frame | r → reverse | s → stop\r')
-        while True:
-            key = read_key()
-            if key == 'q':
-                break
-            if key:
-                node.on_key(key)
+        print('j/t → mode | w/e → frame | r → reverse | s → stop | release key → coast ends\r')
+        while rclpy.ok():
+            # Drain available keys without blocking (holding keys may not repeat).
+            while True:
+                r, _, _ = select.select([sys.stdin], [], [], 0)
+                if not r:
+                    break
+                key = read_key()
+                if key == 'q':
+                    return
+                if key:
+                    node.on_key(key)
+            # Drive the 50 Hz timer in this thread (background spin can miss timers).
+            exe.spin_once(timeout_sec=period)
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         node.destroy_node()

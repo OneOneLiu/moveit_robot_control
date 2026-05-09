@@ -32,6 +32,8 @@
         - fr3_joint5
         - fr3_joint6
         - fr3_joint7
+      # MoveIt Servo streams short horizons with nonzero terminal velocity.
+      allow_nonzero_velocity_at_trajectory_end: true
       gains:
         fr3_joint1: { p: 600., d: 30., i: 0., i_clamp: 1. }
         fr3_joint2: { p: 600., d: 30., i: 0., i_clamp: 1. }
