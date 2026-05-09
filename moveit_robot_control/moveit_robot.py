@@ -7,7 +7,7 @@ from rclpy.action import ActionClient
 from rclpy.executors import SingleThreadedExecutor
 from moveit_msgs.action import MoveGroup, ExecuteTrajectory
 from moveit_msgs.msg import (Constraints, JointConstraint, PositionConstraint,
-                              OrientationConstraint, BoundingVolume)
+                              OrientationConstraint, RobotState)
 from moveit_msgs.srv import GetPositionFK, GetPositionIK, GetCartesianPath
 from geometry_msgs.msg import Pose
 from sensor_msgs.msg import JointState
@@ -100,15 +100,16 @@ class MoveitRobot:
                 tolerance_above=0.001, tolerance_below=0.001, weight=1.0))
         return c
 
-    def _pose_constraints(self, target: Pose, lock_rx=True, lock_ry=True, lock_rz=True):
+    def _goal_constraints(self, target: Pose, lock_rx=True, lock_ry=True, lock_rz=True):
+        """Tight sphere + orientation at target — goes in goal_constraints[], not path_constraints."""
         _tol = 0.01
         pc = PositionConstraint()
         pc.header.frame_id = self._frame
         pc.link_name = self._ee
-        bv = BoundingVolume()
-        bv.primitives = [SolidPrimitive(type=SolidPrimitive.SPHERE, dimensions=[_tol])]
-        bv.primitive_poses = [target]
-        pc.constraint_region = bv
+        pc.constraint_region.primitives.append(
+            SolidPrimitive(type=SolidPrimitive.SPHERE, dimensions=[_tol])
+        )
+        pc.constraint_region.primitive_poses.append(target)
         pc.weight = 1.0
 
         oc = OrientationConstraint()
@@ -138,20 +139,18 @@ class MoveitRobot:
 
     def move_to_pose(self, target: Pose, **kw) -> bool:
         goal = self._base_goal(**kw)
-        goal.request.goal_constraints = [self._pose_constraints(target)]
+        goal.request.goal_constraints = [self._goal_constraints(target)]
         return self._ok(self._action(self._move, goal))
 
     def plan_to_pose(self, target: Pose, **kw):
         goal = self._base_goal(**kw)
-        goal.request.goal_constraints = [self._pose_constraints(target)]
+        goal.request.goal_constraints = [self._goal_constraints(target)]
         goal.planning_options.plan_only = True
         r = self._action(self._move, goal)
         return r.planned_trajectory if self._ok(r) else None
 
     def move_to(self, x=None, y=None, z=None, **kw) -> bool:
-        """Move end-effector; None position axes keep their current value.
-        Uses Cartesian path planning so all constraints are enforced geometrically
-        along every point of the trajectory, not just at the goal."""
+        """Move EE to (x, y, z); omitted axes stay at their current value."""
         cur = self.get_ee_pose()
         if cur is None:
             return False
@@ -161,10 +160,6 @@ class MoveitRobot:
         target.position.z = float(cur.position.z if z is None else z)
         target.orientation = cur.orientation
         return self.move_cartesian([target], **kw)
-
-    def move_to_position(self, x, y, z, **kw) -> bool:
-        """Move to xyz while keeping current end-effector orientation."""
-        return self.move_to(x, y, z, **kw)
 
     def move_cartesian(self, waypoints, max_step=0.01, **kw) -> bool:
         traj = self.plan_cartesian(waypoints, max_step=max_step, **kw)
@@ -241,11 +236,42 @@ class MoveitRobot:
     def set_planning_time(self, seconds: float):
         self._plan_time = float(seconds)
 
-    def set_constraints(self, constraints: Constraints):
+    def set_path_constraints(self, constraints: Constraints):
+        """Set path constraints applied to every planned trajectory.
+
+        Build the Constraints object with functions from moveit_robot_control.constraints,
+        then call this method before planning. Call clear_path_constraints() when done.
+        """
         self._path_constraints = constraints
 
-    def clear_constraints(self):
+    def clear_path_constraints(self):
         self._path_constraints = Constraints()
+
+    def get_robot_state(self) -> RobotState:
+        """Current robot state as a RobotState message."""
+        rs = RobotState()
+        if self._js is not None:
+            rs.joint_state = self._js
+        return rs
+
+    def get_trajectory_ee_poses(self, traj) -> list:
+        """Compute FK for every point in a planned trajectory, return list of EE Pose.
+
+        Used to visualize a trajectory as a sequence of EE positions — pass the result
+        to Visualizer.trajectory_points().
+        """
+        poses = []
+        names = list(traj.joint_trajectory.joint_names)
+        for point in traj.joint_trajectory.points:
+            req = GetPositionFK.Request()
+            req.header.frame_id = self._frame
+            req.fk_link_names = [self._ee]
+            req.robot_state.joint_state.name = names
+            req.robot_state.joint_state.position = list(point.positions)
+            resp = self._svc(self._fk, req)
+            if resp and resp.error_code.val == 1:
+                poses.append(resp.pose_stamped[0].pose)
+        return poses
 
     @property
     def node(self):
